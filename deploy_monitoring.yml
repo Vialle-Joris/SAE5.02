@@ -94,7 +94,7 @@
                     "type": "graph",
                     "targets": [
                       {
-                        "expr": "rate(cpu_seconds_total[10s])",
+                        "expr": "rate(process_cpu_seconds_total[10s])",
                         "legendFormat": "CPU Usage"
                       }
                     ]
@@ -114,8 +114,8 @@
                     "type": "graph",
                     "targets": [
                       {
-                        "expr": "ping_rtt",
-                        "legendFormat": "Network Latency"
+                        "expr": "rate(node_network_receive_bytes_total[10s])",
+                        "legendFormat": "Network Receive Rate"
                       }
                     ]
                   }

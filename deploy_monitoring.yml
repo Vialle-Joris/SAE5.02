@@ -1,0 +1,116 @@
+---
+- name: Déploiement de l'outil de monitoring Prometheus
+  hosts: localhost
+  become: yes
+  become_method: sudo
+  vars_prompt:
+    - name: "server_ip"
+      prompt: "Quelle adresse IP souhaitez-vous utiliser pour le monitoring ?"
+      private: no
+    - name: "project_path"
+      prompt: "Chemin absolu où est situé votre répertoire SAE5.02 (se termine par /SAE5.02/) ?"
+      private: no
+      default: "~/SAE5.02"
+
+  tasks:
+    # Normalisation du chemin du projet
+    - name: Expander le chemin utilisateur (~) dans project_path
+      set_fact:
+        project_path_expanded: "{{ project_path | expanduser }}"
+
+    # Création de l'arborescence pour Prometheus
+    - name: Création des répertoires pour Prometheus
+      file:
+        path: "{{ project_path_expanded }}/monitoring/{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - prometheus
+        - prometheus/config
+
+    # Création du fichier de configuration Prometheus
+    - name: Création du fichier prometheus.yml
+      copy:
+        content: |
+          global:
+            scrape_interval: 15s
+            evaluation_interval: 15s
+
+          scrape_configs:
+            - job_name: 'minecraft_server'
+              static_configs:
+                - targets: ['{{ server_ip }}:25575']
+
+            - job_name: 'node_exporter'
+              static_configs:
+                - targets: ['localhost:9100']
+
+          alerting:
+            alertmanagers:
+              - static_configs:
+                  - targets: []
+
+        dest: "{{ project_path_expanded }}/monitoring/prometheus/config/prometheus.yml"
+        mode: '0644'
+
+    # Création du fichier docker-compose.yml pour Prometheus
+    - name: Création du fichier docker-compose.yml pour Prometheus
+      copy:
+        content: |
+          version: "3.8"
+          services:
+            prometheus:
+              image: prom/prometheus
+              container_name: prometheus
+              ports:
+                - "9090:9090"
+              volumes:
+                - ./prometheus/config:/etc/prometheus
+              command:
+                - "--config.file=/etc/prometheus/prometheus.yml"
+              restart: unless-stopped
+
+            node_exporter:
+              image: prom/node-exporter
+              container_name: node_exporter
+              ports:
+                - "9100:9100"
+              restart: unless-stopped
+
+        dest: "{{ project_path_expanded }}/monitoring/docker-compose.yml"
+        mode: '0644'
+
+    # Lancement des services de monitoring avec Docker Compose
+    - name: Lancer Prometheus et Node Exporter avec Docker Compose
+      command: docker-compose up -d
+      args:
+        chdir: "{{ project_path_expanded }}/monitoring"
+
+    # Vérification des services
+    - name: Vérifier que Prometheus est en cours d'exécution
+      shell: docker ps | grep prometheus
+      register: prometheus_status
+
+    - name: Vérification Prometheus
+      debug:
+        msg: "Prometheus est démarré avec succès."
+      when: prometheus_status.stdout != ""
+
+    # Vérification de Node Exporter
+    - name: Vérifier que Node Exporter est en cours d'exécution
+      shell: docker ps | grep node_exporter
+      register: node_exporter_status
+
+    - name: Vérification Node Exporter
+      debug:
+        msg: "Node Exporter est démarré avec succès."
+      when: node_exporter_status.stdout != ""
+
+    # Vérification des cibles dans Prometheus
+    - name: Vérifier les targets dans Prometheus
+      command: "curl -s http://localhost:9090/api/v1/targets"
+      register: prometheus_targets
+
+    - name: Afficher les targets Prometheus
+      debug:
+        var: prometheus_targets.stdout

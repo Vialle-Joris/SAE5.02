@@ -86,16 +86,18 @@
         dest: "{{ project_path_expanded }}/docker/configs/server.properties"
         mode: '0644'
 
-    # Création du fichier ops.json pour bannir "BlackHat"
-    - name: Création du fichier ops.json pour bannir BlackHat
+    # Création du fichier banned-players.json pour interdire "BlackHat"
+    - name: Bannir le joueur BlackHat
       copy:
         content: |
           [
             {
               "uuid": "00000000-0000-0000-0000-000000000000",
               "name": "BlackHat",
-              "level": 0,
-              "bypassesPlayerLimit": false
+              "created": "{{ ansible_date_time.iso8601 }}",
+              "source": "Ansible",
+              "expires": "forever",
+              "reason": "Utilisateur interdit"
             }
           ]
         dest: "{{ project_path_expanded }}/docker/configs/banned-players.json"

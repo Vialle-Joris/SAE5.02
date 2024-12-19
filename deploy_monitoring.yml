@@ -1,116 +1,154 @@
 ---
-- name: Déploiement de l'outil de monitoring Prometheus
+- name: Déploiement de l'outil de monitoring pour le serveur Minecraft
   hosts: localhost
   become: yes
   become_method: sudo
   vars_prompt:
     - name: "server_ip"
-      prompt: "Quelle adresse IP souhaitez-vous utiliser pour le monitoring ?"
+      prompt: "Quelle adresse IP souhaitez-vous utiliser pour le fichier hosts ? (ex: 192.168.1.1)"
       private: no
     - name: "project_path"
       prompt: "Chemin absolu où est situé votre répertoire SAE5.02 (se termine par /SAE5.02/) ?"
       private: no
       default: "~/SAE5.02"
-
   tasks:
     # Normalisation du chemin du projet
     - name: Expander le chemin utilisateur (~) dans project_path
       set_fact:
         project_path_expanded: "{{ project_path | expanduser }}"
 
-    # Création de l'arborescence pour Prometheus
-    - name: Création des répertoires pour Prometheus
-      file:
-        path: "{{ project_path_expanded }}/monitoring/{{ item }}"
-        state: directory
-        mode: '0755'
-      with_items:
-        - prometheus
-        - prometheus/config
+    # Mise à jour des paquets et installation de Docker
+    - name: Mise à jour des paquets et installation de Docker si nécessaire
+      apt:
+        update_cache: yes
+        name: 
+          - docker.io
+          - docker-compose
+        state: present
 
-    # Création du fichier de configuration Prometheus
-    - name: Création du fichier prometheus.yml
-      copy:
-        content: |
-          global:
-            scrape_interval: 15s
-            evaluation_interval: 15s
-
-          scrape_configs:
-            - job_name: 'minecraft_server'
-              static_configs:
-                - targets: ['{{ server_ip }}:25575']
-
-            - job_name: 'node_exporter'
-              static_configs:
-                - targets: ['localhost:9100']
-
-          alerting:
-            alertmanagers:
-              - static_configs:
-                  - targets: []
-
-        dest: "{{ project_path_expanded }}/monitoring/prometheus/config/prometheus.yml"
-        mode: '0644'
-
-    # Création du fichier docker-compose.yml pour Prometheus
-    - name: Création du fichier docker-compose.yml pour Prometheus
+    # Création des fichiers et répertoires nécessaires pour le monitoring
+    - name: Création du fichier docker-compose.yml pour Grafana et Prometheus
       copy:
         content: |
           version: "3.8"
           services:
             prometheus:
-              image: prom/prometheus
+              image: prom/prometheus:latest
               container_name: prometheus
               ports:
                 - "9090:9090"
               volumes:
-                - ./prometheus/config:/etc/prometheus
+                - ./prometheus.yml:/etc/prometheus/prometheus.yml
               command:
-                - "--config.file=/etc/prometheus/prometheus.yml"
+                - '--config.file=/etc/prometheus/prometheus.yml'
               restart: unless-stopped
 
-            node_exporter:
-              image: prom/node-exporter
-              container_name: node_exporter
+            grafana:
+              image: grafana/grafana:latest
+              container_name: grafana
               ports:
-                - "9100:9100"
+                - "3000:3000"
+              environment:
+                GF_SECURITY_ADMIN_PASSWORD: "admin"
               restart: unless-stopped
-
-        dest: "{{ project_path_expanded }}/monitoring/docker-compose.yml"
+        dest: "{{ project_path_expanded }}/docker/docker-compose-monitoring.yml"
         mode: '0644'
 
-    # Lancement des services de monitoring avec Docker Compose
-    - name: Lancer Prometheus et Node Exporter avec Docker Compose
-      command: docker-compose up -d
+    # Configuration de Prometheus pour collecter les métriques système (CPU, mémoire, etc.)
+    - name: Création du fichier de configuration Prometheus (prometheus.yml)
+      copy:
+        content: |
+          global:
+            scrape_interval: 10s
+
+          scrape_configs:
+            - job_name: 'node'
+              static_configs:
+                - targets: ['localhost:9100']
+
+        dest: "{{ project_path_expanded }}/docker/prometheus.yml"
+        mode: '0644'
+
+    # Installation du Node Exporter pour Prometheus (collecte des métriques systèmes)
+    - name: Installation de Node Exporter
+      shell: |
+        wget https://github.com/prometheus/node_exporter/releases/download/v1.3.1/node_exporter-1.3.1.linux-amd64.tar.gz
+        tar -xvzf node_exporter-1.3.1.linux-amd64.tar.gz
+        mv node_exporter-1.3.1.linux-amd64/node_exporter /usr/local/bin/
+        rm -rf node_exporter-1.3.1.linux-amd64*
+        useradd --no-create-home --shell /bin/false node_exporter
+        mkdir /etc/systemd/system/node_exporter.service.d
+        touch /etc/systemd/system/node_exporter.service
+        systemctl daemon-reload
+        systemctl enable node_exporter
+        systemctl start node_exporter
+      become: yes
+
+    # Démarrer Prometheus et Grafana avec Docker Compose
+    - name: Démarrer Prometheus et Grafana via Docker Compose
+      command: docker-compose -f "{{ project_path_expanded }}/docker/docker-compose-monitoring.yml" up -d
       args:
-        chdir: "{{ project_path_expanded }}/monitoring"
+        chdir: "{{ project_path_expanded }}/docker"
 
-    # Vérification des services
-    - name: Vérifier que Prometheus est en cours d'exécution
-      shell: docker ps | grep prometheus
-      register: prometheus_status
-
-    - name: Vérification Prometheus
+    # Affichage de l'URL de Grafana
+    - name: Afficher l'URL de Grafana
       debug:
-        msg: "Prometheus est démarré avec succès."
-      when: prometheus_status.stdout != ""
+        msg: "Grafana est maintenant accessible à l'adresse http://{{ server_ip }}:3000 avec l'utilisateur admin et mot de passe admin."
 
-    # Vérification de Node Exporter
-    - name: Vérifier que Node Exporter est en cours d'exécution
-      shell: docker ps | grep node_exporter
-      register: node_exporter_status
-
-    - name: Vérification Node Exporter
-      debug:
-        msg: "Node Exporter est démarré avec succès."
-      when: node_exporter_status.stdout != ""
-
-    # Vérification des cibles dans Prometheus
-    - name: Vérifier les targets dans Prometheus
-      command: "curl -s http://localhost:9090/api/v1/targets"
-      register: prometheus_targets
-
-    - name: Afficher les targets Prometheus
-      debug:
-        var: prometheus_targets.stdout
+    # Configuration de Grafana avec un dashboard personnalisé pour les métriques CPU, mémoire et latence réseau
+    - name: Création du dashboard Grafana (automatique via API)
+      uri:
+        url: "http://{{ server_ip }}:3000/api/dashboards/db"
+        method: POST
+        user: "admin"
+        password: "admin"
+        body: |
+          {
+            "dashboard": {
+              "id": null,
+              "title": "Server Monitoring",
+              "tags": ["auto"],
+              "timezone": "browser",
+              "panels": [
+                {
+                  "type": "graph",
+                  "title": "CPU Usage",
+                  "targets": [
+                    {
+                      "expr": "avg(rate(node_cpu_seconds_total{mode='idle'}[10s])) by (instance)",
+                      "legendFormat": "{{ instance }}",
+                      "intervalFactor": 2
+                    }
+                  ]
+                },
+                {
+                  "type": "graph",
+                  "title": "Memory Usage",
+                  "targets": [
+                    {
+                      "expr": "node_memory_MemTotal_bytes - node_memory_MemFree_bytes",
+                      "legendFormat": "{{ instance }}",
+                      "intervalFactor": 2
+                    }
+                  ]
+                },
+                {
+                  "type": "graph",
+                  "title": "Network Latency",
+                  "targets": [
+                    {
+                      "expr": "avg(node_network_receive_bytes_total{device='eth0'}[10s])",
+                      "legendFormat": "{{ instance }}",
+                      "intervalFactor": 2
+                    }
+                  ]
+                }
+              ]
+            },
+            "overwrite": false
+          }
+        body_format: json
+        headers:
+          Content-Type: "application/json"
+      register: grafana_dashboard
+      ignore_errors: yes

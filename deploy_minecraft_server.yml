@@ -86,23 +86,6 @@
         dest: "{{ project_path_expanded }}/docker/configs/server.properties"
         mode: '0644'
 
-    # Création du fichier banned-players.json pour interdire "BlackHat"
-    - name: Bannir le joueur BlackHat
-      copy:
-        content: |
-          [
-            {
-              "uuid": "00000000-0000-0000-0000-000000000000",
-              "name": "BlackHat",
-              "created": "{{ ansible_date_time.iso8601 }}",
-              "source": "Ansible",
-              "expires": "forever",
-              "reason": "Utilisateur interdit"
-            }
-          ]
-        dest: "{{ project_path_expanded }}/docker/configs/banned-players.json"
-        mode: '0644'
-
     # Déplacement des fichiers .jar vers le répertoire des mods
     - name: Déplacer les fichiers .jar vers le répertoire des mods
       shell: mv {{ project_path_expanded }}/*.jar {{ project_path_expanded }}/docker/mods/

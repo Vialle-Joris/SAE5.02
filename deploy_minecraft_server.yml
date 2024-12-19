@@ -31,19 +31,6 @@
         - 'docker/mods'
         - 'docker/worlds'
 
-    - name: Créer des fichiers README dans les répertoires
-      copy:
-        content: "# Documentation"
-        dest: "{{ project_path_expanded }}/{{ item }}"
-        mode: '0644'
-      with_items:
-        - 'ansible/playbooks/README.md'
-        - 'ansible/roles/README.md'
-        - 'ansible/inventory/README.md'
-        - 'docker/configs/README.md'
-        - 'docker/mods/README.md'
-        - 'docker/worlds/README.md'
-
     # Création du fichier d'inventaire pour Ansible
     - name: Création du fichier d'inventaire pour Ansible
       copy:
@@ -56,98 +43,57 @@
         dest: "{{ project_path_expanded }}/ansible/inventory/hosts"
         mode: '0644'
 
-    # Création du fichier server.properties
-    - name: Création du fichier server.properties
+    # Créer le fichier install_docker.yml avant de l'inclure
+    - name: Créer le fichier install_docker.yml
       copy:
         content: |
-          # Minecraft server properties
-          # Updated for SAE5.02
+          ---
+          - name: Installation de Docker et Docker Compose
+            hosts: all
+            become: yes
+            tasks:
+              - name: Mise à jour des paquets
+                apt:
+                  update_cache: yes
 
-          allow-flight=false
-          allow-nether=true
-          difficulty=normal
-          enable-command-block=true
-          gamemode=survival
-          generate-structures=true
-          level-name=SAE5.02
-          max-players=20
-          motd=Bienvenue sur le serveur SAE5.02 !\nRejoignez-nous pour une aventure unique.
-          online-mode=false
-          pvp=true
-          server-port=25565
-          view-distance=12
-          simulation-distance=10
-          spawn-animals=true
-          spawn-monsters=true
-          spawn-npcs=true
-          enable-rcon=true
-          rcon.password=19fe8672f3067dc8c29761b1
-          rcon.port=25575
-        dest: "{{ project_path_expanded }}/docker/configs/server.properties"
+              - name: Installation des dépendances
+                apt:
+                  name:
+                    - apt-transport-https
+                    - ca-certificates
+                    - curl
+                    - software-properties-common
+                  state: present
+
+              - name: Ajout de la clé GPG Docker
+                become: yes
+                shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+
+              - name: Ajout du repository Docker
+                apt_repository:
+                  repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+
+              - name: Installation de Docker et Docker Compose
+                apt:
+                  name:
+                    - docker-ce
+                    - docker-ce-cli
+                    - containerd.io
+                  state: present
+
+              - name: Vérification du service Docker
+                service:
+                  name: docker
+                  state: started
+                  enabled: true
+        dest: "{{ project_path_expanded }}/ansible/playbooks/install_docker.yml"
         mode: '0644'
 
-    # Création du fichier ops.json pour bannir "BlackHat"
-    - name: Création du fichier ops.json pour bannir BlackHat
-      copy:
-        content: |
-          [
-            {
-              "uuid": "00000000-0000-0000-0000-000000000000",
-              "name": "BlackHat",
-              "level": 0,
-              "bypassesPlayerLimit": false
-            }
-          ]
-        dest: "{{ project_path_expanded }}/docker/configs/banned-players.json"
-        mode: '0644'
-
-    # Déplacement des fichiers .jar vers le répertoire des mods
-    - name: Déplacer les fichiers .jar vers le répertoire des mods
-      shell: mv {{ project_path_expanded }}/*.jar {{ project_path_expanded }}/docker/mods/
+    # Lancer le playbook Docker après sa création
+    - name: Lancer le playbook Docker pour installer Docker et Docker Compose
+      command: ansible-playbook ansible/playbooks/install_docker.yml --ask-become-pass
       args:
-        removes: "{{ project_path_expanded }}/*.jar"
+        chdir: "{{ project_path_expanded }}"
 
-    # Création du fichier docker-compose.yml
-    - name: Création du fichier docker-compose.yml
-      copy:
-        content: |
-          version: "3.8"
-          services:
-            minecraft:
-              image: itzg/minecraft-server
-              container_name: minecraft_server
-              ports:
-                - "25565:25565"
-              environment:
-                EULA: "TRUE"
-                TYPE: "FORGE"
-                VERSION: "1.20.1"
-                FORGEVERSION: "47.3.12"
-                DIFFICULTY: "normal"
-                ONLINE_MODE: "FALSE"
-              volumes:
-                - ./configs:/data
-                - ./mods:/mods
-                - ./worlds:/world
-              restart: unless-stopped
-        dest: "{{ project_path_expanded }}/docker/docker-compose.yml"
-        mode: '0644'
-
-    # Lancement du serveur Docker
-    - name: Lancer le serveur Minecraft avec Docker Compose
-      command: docker-compose up -d
-      args:
-        chdir: "{{ project_path_expanded }}/docker"
-
-    # Déploiement des mods via Ansible
-    - name: Déploiement des mods sur le serveur Minecraft
-      copy:
-        src: "{{ project_path_expanded }}/docker/mods/"
-        dest: "/home/joris/minecraft-server/mods/"
-        owner: root
-        group: root
-        mode: '0755'
-        remote_src: no
-
-    - name: Redémarrer le serveur Minecraft Docker pour appliquer les mods
-      command: docker restart minecraft_server
+    # Autres étapes (création de server.properties, etc.)...
+    # Reste des étapes ici...

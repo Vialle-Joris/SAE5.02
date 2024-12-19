@@ -1,86 +1,64 @@
 ---
-- name: Déploiement et configuration du serveur Minecraft
+- name: Déploiement complet d'un serveur Minecraft Forge
   hosts: localhost
   become: yes
+  become_method: sudo
   vars_prompt:
-    - name: "minecraft_server_ip"
-      prompt: "Entrez l'adresse IP du serveur (par exemple 192.168.1.1)"
+    - name: "server_ip"
+      prompt: "Quelle adresse IP souhaitez-vous utiliser pour le fichier hosts ?"
       private: no
-
-    - name: "sae5_path"
-      prompt: "Entrez le chemin absolu du dossier contenant SAE5.02 (exemple : /home/joris/Documents/SAE5.02)"
+    - name: "project_path"
+      prompt: "Chemin absolu où est situé votre répertoire SAE5.02 (se termine par /SAE5.02/) ?"
       private: no
-
+      default: "~/SAE5.02"
   tasks:
-    # Étape 1 : Arborescence de base
-    - name: Cloner le dépôt Git
-      git:
-        repo: 'https://github.com/Vialle-Joris/SAE5.02.git'
-        dest: "{{ sae5_path }}"
-      become: no
+    # Normalisation du chemin du projet
+    - name: Expander le chemin utilisateur (~) dans project_path
+      set_fact:
+        project_path_expanded: "{{ project_path | expanduser }}"
 
-    - name: Créer les répertoires nécessaires
+    # Création de l'arborescence
+    - name: Création des répertoires pour Ansible, Docker et leur contenu
       file:
-        path: "{{ sae5_path }}/{{ item }}"
+        path: "{{ project_path_expanded }}/{{ item }}"
         state: directory
         mode: '0755'
-      loop:
-        - ansible/playbooks
-        - ansible/roles
-        - ansible/inventory
-        - docker/configs
-        - docker/mods
-        - docker/worlds
-      become: no
+      with_items:
+        - 'ansible/playbooks'
+        - 'ansible/roles'
+        - 'ansible/inventory'
+        - 'docker/configs'
+        - 'docker/mods'
+        - 'docker/worlds'
 
-    - name: Créer les fichiers README
+    - name: Créer des fichiers README dans les répertoires
       copy:
-        content: "README pour {{ item }}"
-        dest: "{{ sae5_path }}/{{ item }}/README.md"
+        content: "# Documentation"
+        dest: "{{ project_path_expanded }}/{{ item }}"
         mode: '0644'
-      loop:
-        - ansible/playbooks
-        - ansible/roles
-        - ansible/inventory
-        - docker/configs
-        - docker/mods
-        - docker/worlds
-      become: no
+      with_items:
+        - 'ansible/playbooks/README.md'
+        - 'ansible/roles/README.md'
+        - 'ansible/inventory/README.md'
+        - 'docker/configs/README.md'
+        - 'docker/mods/README.md'
+        - 'docker/worlds/README.md'
 
-    # Étape 2 : Configuration environnement Docker pour Minecraft
-    - name: Installation de Docker et Docker Compose
-      include_tasks: ansible/playbooks/install_docker.yml
-
-    # Étape 3 : Configuration du serveur Minecraft Forge (via Docker)
-    - name: Créer le fichier docker-compose.yml
+    # Création du fichier d'inventaire pour Ansible
+    - name: Création du fichier d'inventaire pour Ansible
       copy:
-        dest: "{{ sae5_path }}/docker/docker-compose.yml"
         content: |
-          version: "3.8"
-          services:
-            minecraft:
-              image: itzg/minecraft-server
-              container_name: minecraft_server
-              ports:
-                - "25565:25565"
-              environment:
-                EULA: "TRUE"
-                TYPE: "FORGE"
-                VERSION: "1.20.1"
-                FORGEVERSION: "47.3.12"
-                DIFFICULTY: "normal"
-                ONLINE_MODE: "FALSE"
-              volumes:
-                - ./configs:/data
-                - ./mods:/mods
-                - ./worlds:/world
-              restart: unless-stopped
-      become: no
+          [serveur_ubuntu]
+          {{ server_ip }} ansible_ssh_user=joris ansible_ssh_pass=Sterling7mc ansible_become_pass=Sterling7mc
 
-    # Étape 4 : Modification du fichier server.properties
-    - name: Modifier server.properties
+          [minecraft_server]
+          {{ server_ip }} ansible_ssh_user=joris ansible_ssh_pass=Sterling7mc ansible_become_pass=Sterling7mc
+        dest: "{{ project_path_expanded }}/ansible/inventory/hosts"
+        mode: '0644'
+
+    # Création du fichier server.properties
+    - name: Création du fichier server.properties
       copy:
-        dest: "{{ sae5_path }}/docker/configs/server.properties"
         content: |
           # Minecraft server properties
           # Updated for SAE5.02
@@ -105,72 +83,71 @@
           enable-rcon=true
           rcon.password=19fe8672f3067dc8c29761b1
           rcon.port=25575
-      become: no
+        dest: "{{ project_path_expanded }}/docker/configs/server.properties"
+        mode: '0644'
 
-    # Étape 5 : Lancement du serveur Docker
-    - name: Lancer le serveur Docker Minecraft
-      command: docker-compose up -d
-      args:
-        chdir: "{{ sae5_path }}/docker"
-      become: no
-
-    # Étape 6 : Bannissement du joueur "BlackHat"
-    - name: Créer le fichier banned-players.json
+    # Création du fichier ops.json pour bannir "BlackHat"
+    - name: Création du fichier ops.json pour bannir BlackHat
       copy:
         content: |
           [
             {
               "uuid": "00000000-0000-0000-0000-000000000000",
               "name": "BlackHat",
-              "created": "{{ ansible_date_time.iso8601 }}",
-              "source": "Server",
-              "expires": "forever",
-              "reason": "Utilisateur interdit"
+              "level": 0,
+              "bypassesPlayerLimit": false
             }
           ]
-        dest: "{{ sae5_path }}/docker/configs/banned-players.json"
+        dest: "{{ project_path_expanded }}/docker/configs/banned-players.json"
         mode: '0644'
-      become: no
 
-    - name: Appliquer le bannissement via RCON
-      command: docker exec minecraft_server rcon-cli ban BlackHat "Utilisateur interdit"
-      ignore_errors: yes
-      become: no
+    # Déplacement des fichiers .jar vers le répertoire des mods
+    - name: Déplacer les fichiers .jar vers le répertoire des mods
+      shell: mv {{ project_path_expanded }}/*.jar {{ project_path_expanded }}/docker/mods/
+      args:
+        removes: "{{ project_path_expanded }}/*.jar"
 
-    # Étape 7 : Déploiement des mods
-    - name: Copier les fichiers .jar des mods dans le dossier correct
-      command: cp -r {{ sae5_path }}/mods/*.jar {{ sae5_path }}/docker/mods/
-      become: yes
+    # Création du fichier docker-compose.yml
+    - name: Création du fichier docker-compose.yml
+      copy:
+        content: |
+          version: "3.8"
+          services:
+            minecraft:
+              image: itzg/minecraft-server
+              container_name: minecraft_server
+              ports:
+                - "25565:25565"
+              environment:
+                EULA: "TRUE"
+                TYPE: "FORGE"
+                VERSION: "1.20.1"
+                FORGEVERSION: "47.3.12"
+                DIFFICULTY: "normal"
+                ONLINE_MODE: "FALSE"
+              volumes:
+                - ./configs:/data
+                - ./mods:/mods
+                - ./worlds:/world
+              restart: unless-stopped
+        dest: "{{ project_path_expanded }}/docker/docker-compose.yml"
+        mode: '0644'
 
-    - name: Redémarrer le serveur pour appliquer les mods
-      command: docker restart minecraft_server
-      become: no
+    # Lancement du serveur Docker
+    - name: Lancer le serveur Minecraft avec Docker Compose
+      command: docker-compose up -d
+      args:
+        chdir: "{{ project_path_expanded }}/docker"
 
-    # Étape 8 : Configuration de la sauvegarde automatique
-    - name: Créer un répertoire de sauvegarde s'il n'existe pas
-      file:
-        path: /home/{{ ansible_user }}/minecraft-server/worlds_backups
-        state: directory
+    # Déploiement des mods via Ansible
+    - name: Déploiement des mods sur le serveur Minecraft
+      copy:
+        src: "{{ project_path_expanded }}/docker/mods/"
+        dest: "/home/joris/minecraft-server/mods/"
+        owner: root
+        group: root
         mode: '0755'
-      become: yes
+        remote_src: no
 
-    - name: Sauvegarder les mondes Minecraft
-      command: tar -czf /home/{{ ansible_user }}/minecraft-server/worlds_backups/backup_{{ ansible_date_time.iso8601 }}.tar.gz /home/{{ ansible_user }}/minecraft-server/world/
-      args:
-        creates: /home/{{ ansible_user }}/minecraft-server/worlds_backups/backup_{{ ansible_date_time.iso8601 }}.tar.gz
-      become: yes
-
-    - name: Sauvegarder les fichiers de configuration
-      command: tar -czf /home/{{ ansible_user }}/minecraft-server/worlds_backups/config_backup_{{ ansible_date_time.iso8601 }}.tar.gz /home/{{ ansible_user }}/minecraft-server/configs/
-      args:
-        creates: /home/{{ ansible_user }}/minecraft-server/worlds_backups/config_backup_{{ ansible_date_time.iso8601 }}.tar.gz
-      become: yes
-
-    # Étape 9 : Configuration de la tâche cron pour les sauvegardes
-    - name: Créer une tâche cron pour les sauvegardes
-      cron:
-        name: "Sauvegarde quotidienne du serveur Minecraft"
-        minute: "0"
-        hour: "3"
-        job: "ansible-playbook /home/{{ ansible_user }}/SAE5.02/ansible/playbooks/backup_server.yml"
-      become: yes
+    - name: Redémarrer le serveur Minecraft Docker pour appliquer les mods
+      command: docker restart minecraft_server

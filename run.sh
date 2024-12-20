@@ -49,3 +49,11 @@ sudo apt install -y tree
 # Vérification de l'installation de Tree
 echo "Vérification de l'installation de Tree..."
 tree --version
+
+# Installation de docker-compose
+echo "Installation de docker-compose..."
+sudo apt install docker-compose
+
+# Installation de python3-dsutils
+echo "Installation de python3-dsutils..."
+sudo apt-get install python3-setuptools

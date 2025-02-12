@@ -1,5 +1,7 @@
 # SAE5.02
 
+# Sur la machine virtuelle ubuntu :
+
 # Installer la commande git clone
 apt install git
 
@@ -26,3 +28,9 @@ docker logs -f minecraft_server
 
 # Voir les graphiques sur Grafana
 http://<ip>:3000
+
+# Sur la machine hôte pour jouer sur le serveur :
+Installer TLauncher
+Lancer TLauncher avec la version Forge 1.20.1
+Une fois le jeu lancé, cliquer sur "Multijoueurs"
+Puis se connecter avec l'adresse IP resnsigné lors du lancement du playbook install et rajouter le port 25565 (exemple: 192.168.1.1:25565)
